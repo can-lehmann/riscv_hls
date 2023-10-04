@@ -1,0 +1,7 @@
+tools/riscv-opcodes/
+bin/*
+build/*
+*.gv
+*.svg
+!bin/.empty
+!build/.empty
