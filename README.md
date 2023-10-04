@@ -17,5 +17,5 @@ This project is licensed under the MIT license.
 See [LICENSE.txt](LICENSE.txt) for more details.
 
 The files in `tools/opcodes` are from the [riscv-opcodes](https://github.com/riscv/riscv-opcodes) project.
-They are licensed under a BSD-3-Clause license, see [tools/opcodes/LICENSE.txt](tools/opcodes/LICENSE.txt) for more details.
+They are licensed under a BSD-3-Clause license, see [tools/opcodes/LICENSE](tools/opcodes/LICENSE) for more details.
 
