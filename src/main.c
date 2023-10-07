@@ -50,6 +50,7 @@ void exception(exception_t id) {
 // Memory
 
 typedef struct {
+  uint32_t size;
   void* data;
   uint32_t (*read32)(uint32_t addr, void* data);
   void (*write32)(uint32_t addr, uint32_t value, void* data);
@@ -76,8 +77,9 @@ void hls_memwrite32(uint32_t addr, uint32_t value, void* data) {
   __output_mem_write_enable(false);
 }
 
-mem_interface_t init_external_mem_interface() {
+mem_interface_t init_external_mem_interface(uint32_t size) {
   return (mem_interface_t) {
+    .size = size,
     .data = NULL,
     .read32 = hls_memread32,
     .write32 = hls_memwrite32
@@ -127,9 +129,14 @@ void memwrite16(mem_interface_t* mem, uint32_t addr, uint16_t value) {
 
 #include "decode.c"
 
+#define REG_SP 2
+#define REG_A0 10
+#define REG_A1 11
+
 void riscv(mem_interface_t* mem, void (*ecall)(uint32_t*)) {
   uint32_t pc = 0;
   uint32_t regs[32];
+  regs[REG_SP] = mem->size;
   while (1) {
     inst_t inst;
     // TODO: This should not be required
@@ -142,7 +149,7 @@ void riscv(mem_interface_t* mem, void (*ecall)(uint32_t*)) {
     if (decode(memread32(mem, pc), &inst)) {
       exception(E_DECODE);
     }
-    #ifdef SIM
+    #ifdef SIM_DEBUG
     printf("%d\t%s\n", pc, OPCODE_NAMES[inst.opcode]);
     #endif
     clock();
@@ -169,7 +176,7 @@ void riscv(mem_interface_t* mem, void (*ecall)(uint32_t*)) {
       break;
       case JALR: {
         uint32_t old_pc = pc;
-        pc = (regs[inst.rs1] + inst.imm) & ~1 - 4;
+        pc = ((regs[inst.rs1] + inst.imm) & ~1) - 4;
         regs[inst.rd] = old_pc + 4;
       }
       break;
@@ -206,7 +213,7 @@ void hls_ecall(uint32_t* regs) {
 }
 
 void top() {
-  mem_interface_t mem = init_external_mem_interface();
+  mem_interface_t mem = init_external_mem_interface(1 << 16);
   riscv(&mem, hls_ecall);
 }
 #endif
@@ -216,9 +223,14 @@ void top() {
 void clock() {}
 
 typedef struct {
-  uint32_t* data;
+  uint8_t* data;
   size_t size;
 } mem_t;
+
+void init_mem(mem_t* mem, size_t size) {
+  mem->data = malloc(size);
+  mem->size = size;
+}
 
 int load_mem(mem_t* mem, const char* path) {
   FILE* file = fopen(path, "r");
@@ -228,17 +240,14 @@ int load_mem(mem_t* mem, const char* path) {
   
   fseek(file, 0, SEEK_END);
   size_t left = ftell(file);
-  if (left % sizeof(uint32_t)) {
+  if (left > mem->size) {
     return 1;
   }
-  left /= sizeof(uint32_t);
-  mem->data = malloc(left * sizeof(uint32_t));
-  mem->size = left;
   fseek(file, 0, SEEK_SET);
   
-  uint32_t* cur = mem->data;
+  uint8_t* cur = mem->data;
   size_t read = 0;
-  while ((read = fread(cur, sizeof(uint32_t), left, file)) > 0) {
+  while ((read = fread(cur, 1, left, file)) > 0) {
     cur += read;
     left -= read;
   }
@@ -250,24 +259,29 @@ int load_mem(mem_t* mem, const char* path) {
 
 uint32_t sim_memread32(uint32_t addr, void* data) {
   mem_t* mem = data;
-  addr = addr >> 2;
   if (addr >= mem->size) {
     abort();
   }
-  return mem->data[addr];
+  return *(uint32_t*)(mem->data + addr);
 }
 
 void sim_memwrite32(uint32_t addr, uint32_t value, void* data) {
   mem_t* mem = data;
-  addr = addr >> 2;
   if (addr >= mem->size) {
     abort();
   }
-  mem->data[addr] = value;
+  *(uint32_t*)(mem->data + addr) = value;
 }
 
 void sim_ecall(uint32_t* regs) {
-  
+  #ifdef SIM_DEBUG
+  printf("Environment Call %d\n", regs[REG_A0]);
+  #endif
+  switch (regs[REG_A0]) {
+    case 0: putc(regs[REG_A1], stdout); break;
+    case 1: printf("%d\n", regs[REG_A1]); break;
+    default: break;
+  }
 }
 
 int main(int argc, const char** argv) {
@@ -276,11 +290,13 @@ int main(int argc, const char** argv) {
   }
   
   mem_t mem;
+  init_mem(&mem, 1 << 16);
   if (load_mem(&mem, argv[1])) {
     return 1;
   }
   
   mem_interface_t mem_interface = {
+    .size = mem.size,
     .data = &mem,
     .read32 = sim_memread32,
     .write32 = sim_memwrite32

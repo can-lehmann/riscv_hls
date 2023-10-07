@@ -3,5 +3,5 @@ bin/*
 build/*
 *.gv
 *.svg
-!bin/.empty
+!bin/example.c
 !build/.empty
